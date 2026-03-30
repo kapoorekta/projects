@@ -1,2 +1,2 @@
 # projects
-Personal repository used to document projects I've worked on. 
+Personal repository used to document ML projects I've worked on.
