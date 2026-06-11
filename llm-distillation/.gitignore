@@ -1,0 +1,23 @@
+# Data and model artifacts are large / regenerable — never commit them.
+data/raw/
+data/interim/
+data/processed/
+artifacts/
+*.parquet
+*.jsonl
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+.ipynb_checkpoints/

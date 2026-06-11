@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-distill"
+version = "0.1.0"
+description = "Distill a large teacher LLM into a small student for Amazon ESCI search-relevance classification."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Ekta Kapoor" }]
+
+# Core deps needed to run the data + eval pipeline.
+# Heavy training deps live in the [project.optional-dependencies] "train" group
+# so the project imports and tests run on a laptop without a GPU.
+dependencies = [
+    "datasets>=2.18",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.3",
+    "tqdm>=4.66",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+# Teacher label generation (pick whichever provider you use).
+teacher = ["openai>=1.30", "anthropic>=0.30"]
+# Student fine-tuning (QLoRA). Needs a CUDA GPU for bitsandbytes.
+train = [
+    "torch>=2.2",
+    "transformers>=4.41",
+    "peft>=0.11",
+    "trl>=0.9",
+    "accelerate>=0.30",
+    "bitsandbytes>=0.43",
+]
+dev = ["pytest>=8.0", "ruff>=0.4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"

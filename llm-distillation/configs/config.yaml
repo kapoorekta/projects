@@ -1,0 +1,51 @@
+# Single source of truth for the pipeline; every script takes --config.
+seed: 42
+
+paths:
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_dir: data/processed
+  artifacts_dir: artifacts
+
+data:
+  # HF dataset id holding ESCI with labels + product fields.
+  # `tasksource/esci` mirrors the official amazon-science release.
+  dataset_id: tasksource/esci
+  locale: us            # us | es | jp  (filter product_locale)
+  use_small_version: true   # the "small" task-1 subset is plenty for practice
+  # How many labeled examples to sample for each split (keep small while learning).
+  n_train: 2000
+  n_eval: 500
+  max_product_chars: 1500   # truncate long product descriptions
+
+teacher:
+  provider: openai          # openai | anthropic
+  # Teacher for E/S/C/I classification.
+  # OpenAI: gpt-4o-mini (cheap). Anthropic: claude-sonnet-4-6 / claude-haiku-4-5.
+  model: gpt-4o-mini
+  temperature: 0.0
+  max_concurrency: 8
+  max_retries: 4
+  # If true, the teacher only writes a rationale and we keep the gold label
+  # (chain-of-thought distillation). If false, the teacher predicts the label
+  # itself (pure response distillation) — useful to study teacher error too.
+  keep_gold_label: true
+
+train:
+  student_model: Qwen/Qwen2.5-0.5B-Instruct
+  output_subdir: student-qlora
+  epochs: 2
+  learning_rate: 0.0002
+  per_device_batch_size: 8
+  grad_accum_steps: 2
+  max_seq_len: 1024
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  load_in_4bit: true
+
+eval:
+  # Models to score against the gold ESCI labels. "student" is always evaluated;
+  # add "teacher" to also report the teacher's accuracy on the eval split.
+  compare: [student, teacher]
+  max_new_tokens: 128
