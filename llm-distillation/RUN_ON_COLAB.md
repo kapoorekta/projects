@@ -18,8 +18,9 @@ If this errors, the runtime isn't on GPU — fix the runtime type above first.
 ### Cell 2 — clone the repo and install
 
 ```python
-!git clone https://github.com/<your-username>/<your-repo>.git
-%cd <your-repo>/llm-distillation
+# -b llm-distillation: the project lives on that branch, not main
+!git clone -b llm-distillation https://github.com/kapoorekta/projects.git
+%cd projects/llm-distillation
 !pip install -q -e ".[teacher,train,dev]"
 ```
 
