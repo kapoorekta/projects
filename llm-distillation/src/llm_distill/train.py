@@ -36,6 +36,8 @@ def _build_dataset(cfg: Config, tokenizer):
 
 
 def train(cfg: Config) -> Path:
+    import inspect
+
     import torch
     from peft import LoraConfig
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -44,6 +46,10 @@ def train(cfg: Config) -> Path:
     set_seed(cfg.seed)
     t = cfg.train
     out_dir = Path(cfg.paths.artifacts_dir) / t.output_subdir
+
+    # T4 (Turing) has no native bf16 — pick the dtype the GPU actually supports.
+    use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    compute_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
     tokenizer = AutoTokenizer.from_pretrained(t.student_model)
     if tokenizer.pad_token is None:
@@ -54,7 +60,7 @@ def train(cfg: Config) -> Path:
         quant_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_compute_dtype=compute_dtype,
             bnb_4bit_use_double_quant=True,
         )
 
@@ -62,7 +68,7 @@ def train(cfg: Config) -> Path:
         t.student_model,
         quantization_config=quant_config,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
+        torch_dtype=compute_dtype,
     )
 
     peft_config = LoraConfig(
@@ -77,27 +83,34 @@ def train(cfg: Config) -> Path:
     dataset = _build_dataset(cfg, tokenizer)
     log.info("Training student %s on %d examples", t.student_model, len(dataset))
 
-    sft_config = SFTConfig(
+    # trl renames things across versions — build kwargs against the installed signature.
+    sft_kwargs = dict(
         output_dir=str(out_dir),
         num_train_epochs=t.epochs,
         learning_rate=t.learning_rate,
         per_device_train_batch_size=t.per_device_batch_size,
         gradient_accumulation_steps=t.grad_accum_steps,
-        max_seq_length=t.max_seq_len,
         logging_steps=10,
         save_strategy="epoch",
-        bf16=True,
+        bf16=use_bf16,
+        fp16=not use_bf16,
         dataset_text_field="text",
         report_to="none",
     )
+    sft_params = inspect.signature(SFTConfig.__init__).parameters
+    # max_seq_length (older trl) was renamed to max_length (newer trl).
+    sft_kwargs["max_seq_length" if "max_seq_length" in sft_params else "max_length"] = t.max_seq_len
+    sft_config = SFTConfig(**sft_kwargs)
 
-    trainer = SFTTrainer(
-        model=model,
-        args=sft_config,
-        train_dataset=dataset,
-        peft_config=peft_config,
-        tokenizer=tokenizer,
+    trainer_kwargs = dict(
+        model=model, args=sft_config, train_dataset=dataset, peft_config=peft_config
     )
+    # tokenizer= (older trl) was renamed to processing_class= (newer trl).
+    if "processing_class" in inspect.signature(SFTTrainer.__init__).parameters:
+        trainer_kwargs["processing_class"] = tokenizer
+    else:
+        trainer_kwargs["tokenizer"] = tokenizer
+    trainer = SFTTrainer(**trainer_kwargs)
     trainer.train()
     trainer.save_model(str(out_dir))
     tokenizer.save_pretrained(str(out_dir))
