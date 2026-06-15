@@ -35,6 +35,7 @@ def _metrics(y_true: list[str], y_pred: list[str]) -> dict:
 def _student_predict(cfg: Config, examples: list[dict]) -> list[str]:
     import torch
     from peft import PeftModel
+    from tqdm import tqdm
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     adapter_dir = Path(cfg.paths.artifacts_dir) / cfg.train.output_subdir
@@ -46,7 +47,7 @@ def _student_predict(cfg: Config, examples: list[dict]) -> list[str]:
     model.eval()
 
     preds: list[str] = []
-    for ex in examples:
+    for ex in tqdm(examples, desc="student eval"):
         messages = build_messages(ex["query"], ex["product"], cfg.data.max_product_chars)
         prompt = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
