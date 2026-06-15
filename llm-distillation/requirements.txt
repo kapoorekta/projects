@@ -1,8 +1,0 @@
-# Pinned-ish convenience file mirroring pyproject's core deps.
-# For a reproducible install prefer:  pip install -e ".[teacher,train,dev]"
-datasets>=2.18
-pandas>=2.0
-pyyaml>=6.0
-scikit-learn>=1.3
-tqdm>=4.66
-python-dotenv>=1.0

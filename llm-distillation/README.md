@@ -1,76 +1,87 @@
-# LLM Distillation
+# LLM Distillation on Amazon ESCI
 
-Distill a large **teacher** LLM into a small **student** for Amazon **ESCI**
-search-relevance classification (label each query–product pair `E`xact /
-`S`ubstitute / `C`omplement / `I`rrelevant).
+Distill a large teacher LLM into a small, deployable student for e-commerce
+**search-relevance classification** — and measure exactly how much quality transfers.
 
-The student is far smaller and cheaper to run than the teacher, but learns from
-the teacher's outputs to approach its quality — on a task with **built-in ground
-truth** (the gold ESCI labels), so you can objectively measure whether it worked.
+A 0.5B open-source model is fine-tuned on a larger model's outputs to label
+`(query, product)` pairs by relevance — **E**xact / **S**ubstitute /
+**C**omplement / **I**rrelevant — on Amazon's [ESCI](https://github.com/amazon-science/esci-data)
+benchmark. Because ESCI ships **gold labels**, the distilled student is scored
+objectively against ground truth (accuracy + macro-F1), not vibes.
 
-## Layout
+## Why this project
+
+A demonstration of the full applied-distillation loop: turning an expensive
+general model into a small, cheap, task-specific one. It exercises teacher data
+generation, parameter-efficient fine-tuning (QLoRA), and evaluation design.
+
+## Approach
+
+Distillation comes in three forms: **logit/soft-label** (match the teacher's
+probability distribution), **response** (learn from its answers), and
+**rationale** (learn its reasoning). With a *closed-API* teacher there are no
+logits and the tokenizers differ, so soft-label KD is off the table — this uses
+**response + rationale distillation**:
+
+1. **Teacher** (`gpt-4o-mini`) labels each pair `E/S/C/I` with a one-line rationale.
+2. **Student** (`Qwen2.5-0.5B-Instruct`) is **QLoRA**-fine-tuned to reproduce
+   `{label, rationale}`. Targets use the **gold label + the teacher's rationale**,
+   so the student inherits *correct* answers plus the teacher's reasoning.
+3. **Evaluate** the student against gold ESCI labels — accuracy, macro-F1, and a
+   per-class confusion matrix.
+
+## Pipeline
 
 ```
-llm-distillation/
-├── configs/config.yaml        # every knob for every stage
-├── src/llm_distill/
-│   ├── config.py              # YAML -> typed dataclasses
-│   ├── prompts.py             # label space + prompt templates (shared!)
-│   ├── data.py                # stage 1: load + sample ESCI
-│   ├── teacher.py             # stage 2: teacher labels + rationales
-│   ├── train.py               # stage 3: QLoRA SFT of the student
-│   ├── evaluate.py            # stage 4: score vs gold labels
-│   └── utils.py               # logging, seeding, JSONL I/O
-├── scripts/0{1..4}_*.py       # thin CLI wrappers, each takes --config
-├── tests/                     # fast, offline unit tests
-├── data/                      # raw/interim/processed (git-ignored)
-└── artifacts/                 # trained adapters + metrics (git-ignored)
-```
-
-## The pipeline
-
-```
-ESCI (HF)  ──①prepare──▶  interim/{train,eval}.jsonl
+ESCI (HF) ──① prepare ──▶ interim/{train,eval}.jsonl
                               │
-                  ②teacher labels train split
+                  ② teacher labels (E/S/C/I + rationale)
                               ▼
                 processed/train_labeled.jsonl
                               │
-                     ③QLoRA fine-tune student
+                  ③ QLoRA fine-tune Qwen2.5-0.5B
                               ▼
-                  artifacts/student-qlora/  ──④evaluate vs gold──▶ metrics.json
+              artifacts/student-qlora ──④ evaluate vs gold──▶ metrics.json
 ```
 
-1. **Prepare** — download ESCI, filter locale, sample N examples, write JSONL.
-2. **Teacher** — a big model labels each pair as E/S/C/I *with a rationale*.
-   Keep the gold label and distill the *reasoning* (default), or let the teacher
-   predict the label itself (`teacher.keep_gold_label: false`).
-3. **Train** — QLoRA-fine-tune a small instruct model on the teacher outputs.
-4. **Evaluate** — run the student on the held-out split and compare its
-   predictions to the **gold ESCI labels** (accuracy + macro-F1). Optionally
-   score the teacher too, to see how much quality the student retained.
+Each stage is a script driven by `configs/config.yaml`, runnable independently.
+
+## Project structure
+
+```
+llm-distillation/
+├── configs/config.yaml        # single source of truth for every stage
+├── src/llm_distill/
+│   ├── config.py              # YAML → typed dataclasses
+│   ├── prompts.py             # label space + shared prompt templates
+│   ├── data.py                # ① stream + sample ESCI
+│   ├── teacher.py             # ② teacher labelling (OpenAI / Anthropic)
+│   ├── train.py               # ③ QLoRA SFT + class balancing
+│   ├── evaluate.py            # ④ score vs gold labels
+│   └── utils.py               # logging, seeding, JSONL I/O
+├── scripts/0{1..4}_*.py       # CLI wrapper per stage (+ run_pipeline.py)
+└── tests/                     # fast offline unit tests
+```
 
 ## Quickstart
 
 ```bash
-cd llm-distillation
 python -m venv .venv && source .venv/bin/activate
+pip install -e ".[teacher,train,dev]"   # drop 'train' if you have no GPU
+cp .env.example .env                     # add OPENAI_API_KEY (or ANTHROPIC_API_KEY)
 
-# Laptop / no GPU — enough for stages 1, 2, 4 and the tests:
-pip install -e ".[teacher,dev]"
-# Full run including QLoRA training (needs a CUDA GPU):
-pip install -e ".[teacher,train,dev]"
-
-cp .env.example .env        # add your OPENAI_API_KEY (or ANTHROPIC_API_KEY)
-
-make test                   # offline sanity check, no keys needed
-make data                   # 1. download + sample ESCI
-make teacher                # 2. generate teacher labels   (uses API credits)
-make train                  # 3. fine-tune student         (needs GPU)
-make eval                   # 4. score vs gold labels
-# or: make all
+make test       # offline sanity check, no keys needed
+make data       # ① stream + sample ESCI
+make teacher    # ② generate teacher labels   (uses API credits)
+make train      # ③ QLoRA fine-tune           (needs a CUDA GPU)
+make eval       # ④ score vs gold labels
 ```
 
-Everything is driven by `configs/config.yaml`. To run an experiment, copy it
-(`cp configs/config.yaml configs/exp1.yaml`), edit, and pass
-`--config configs/exp1.yaml` (or `make CONFIG=configs/exp1.yaml data`).
+Everything is configured via `configs/config.yaml` — copy it and pass
+`--config configs/your-exp.yaml` to run experiments without touching code.
+
+## Tech stack
+
+Python · Hugging Face `transformers` / `datasets` / `peft` / `trl` ·
+`bitsandbytes` (4-bit QLoRA) · OpenAI API (teacher) · scikit-learn (metrics).
+</content>
