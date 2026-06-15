@@ -15,6 +15,10 @@ def get_logger(name: str) -> logging.Logger:
         format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
         datefmt="%H:%M:%S",
     )
+    # Silence chatty third-party loggers (HF download/HTTP spam) — keep ours at INFO.
+    for noisy in ("httpx", "httpcore", "huggingface_hub", "datasets",
+                  "urllib3", "filelock", "openai", "anthropic"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     return logging.getLogger(name)
 
 

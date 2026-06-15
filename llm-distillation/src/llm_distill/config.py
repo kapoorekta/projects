@@ -29,7 +29,7 @@ class DataConfig:
     n_eval: int = 500
     max_product_chars: int = 1500
     streaming: bool = True       # stream from HF instead of downloading the full set
-    shuffle_buffer: int = 10000  # streaming shuffle buffer size
+    shuffle_buffer: int = 2000   # streaming shuffle buffer (smaller = faster prep)
 
 
 @dataclass
