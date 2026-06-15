@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "Distill a large teacher LLM into a small student for Amazon ESCI search-relevance classification."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
 authors = [{ name = "Ekta Kapoor" }]
 
 # Core deps needed to run the data + eval pipeline.
