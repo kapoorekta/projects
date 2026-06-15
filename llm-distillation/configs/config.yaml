@@ -34,11 +34,11 @@ teacher:
 train:
   student_model: Qwen/Qwen2.5-0.5B-Instruct
   output_subdir: student-qlora
-  epochs: 2
+  epochs: 3
   learning_rate: 0.0002
-  per_device_batch_size: 8
-  grad_accum_steps: 2
-  max_seq_len: 1024
+  per_device_batch_size: 4
+  grad_accum_steps: 4
+  max_seq_len: 512
   lora_r: 16
   lora_alpha: 32
   lora_dropout: 0.05
@@ -47,5 +47,5 @@ train:
 eval:
   # Models to score against the gold ESCI labels. "student" is always evaluated;
   # add "teacher" to also report the teacher's accuracy on the eval split.
-  compare: [student, teacher]
+  compare: [student]
   max_new_tokens: 128
