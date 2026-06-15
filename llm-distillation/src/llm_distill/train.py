@@ -16,9 +16,34 @@ from .utils import get_logger, read_jsonl, set_seed
 log = get_logger(__name__)
 
 
+def _balance(rows: list[dict], per_class: int, seed: int) -> list[dict]:
+    """Resample to `per_class` examples per gold label: downsample classes that
+    have more, oversample (with replacement) classes that have fewer."""
+    import random
+    from collections import defaultdict
+
+    rng = random.Random(seed)
+    by_label: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        by_label[r["gold_label"]].append(r)
+
+    out: list[dict] = []
+    for items in by_label.values():
+        rng.shuffle(items)
+        if len(items) >= per_class:
+            out.extend(items[:per_class])
+        else:
+            out.extend(items)
+            out.extend(rng.choices(items, k=per_class - len(items)))
+    rng.shuffle(out)
+    return out
+
+
 def _build_dataset(cfg: Config, tokenizer):
     """Render each labeled example into a single training text using the
     student's own chat template (prompt + target completion)."""
+    from collections import Counter
+
     from datasets import Dataset
 
     rows = list(read_jsonl(Path(cfg.paths.processed_dir) / "train_labeled.jsonl"))
@@ -26,6 +51,11 @@ def _build_dataset(cfg: Config, tokenizer):
         raise FileNotFoundError(
             "No labeled data found. Run scripts/02_generate_teacher.py first."
         )
+
+    if cfg.train.balance_classes:
+        rows = _balance(rows, cfg.train.balance_per_class, cfg.seed)
+        log.info("Balanced classes -> %s (%d total)",
+                 dict(sorted(Counter(r["gold_label"] for r in rows).items())), len(rows))
 
     def render(row: dict) -> dict:
         messages = row["messages"] + [{"role": "assistant", "content": row["completion"]}]

@@ -55,6 +55,8 @@ class TrainConfig:
     lora_alpha: int = 32
     lora_dropout: float = 0.05
     load_in_4bit: bool = True
+    balance_classes: bool = False  # even out E/S/C/I (downsample majority, oversample rare)
+    balance_per_class: int = 400   # target examples per class when balancing
 
 
 @dataclass

@@ -43,6 +43,8 @@ train:
   lora_alpha: 32
   lora_dropout: 0.05
   load_in_4bit: true
+  balance_classes: true     # even out E/S/C/I to fight majority-class collapse
+  balance_per_class: 400    # 4 x 400 = 1600 training examples
 
 eval:
   # Models to score against the gold ESCI labels. "student" is always evaluated;
