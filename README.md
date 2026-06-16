@@ -8,6 +8,7 @@ self-contained project with its own README, code, and reproducible setup.
 | Project | What it explores | Stack |
 |---|---|---|
 | [llm-distillation](llm-distillation/) | Distilling a large teacher LLM into a small 0.5B student for Amazon ESCI search-relevance classification — teacher labelling, QLoRA fine-tuning, evaluation vs gold labels | Transformers · PEFT/TRL · QLoRA · OpenAI API |
+| [grpo-query-gen](grpo-query-gen/) | GRPO (RL) fine-tuning of an LLM to generate search queries for retrieval / candidate-generation on H&M fashion data — reward = retrieval recall of the next basket | TRL (GRPO) · PEFT · sentence-transformers |
 
 ## How it's organized
 
