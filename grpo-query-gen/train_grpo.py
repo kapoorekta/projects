@@ -4,6 +4,7 @@ candidates cover a customer's next basket.
 Run on a GPU (Colab T4). GRPO samples `num_generations` completions per prompt,
 so it's generation-heavy — keep the model/group small and tune down on OOM.
 """
+import inspect
 import os
 
 from datasets import load_dataset
@@ -23,7 +24,7 @@ def main():
     peft_config = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05,
                              task_type="CAUSAL_LM", target_modules="all-linear")
 
-    cfg = GRPOConfig(
+    cfg_kwargs = dict(
         output_dir="artifacts/grpo-query-gen",
         num_generations=8,               # group size G (relative-advantage baseline)
         per_device_train_batch_size=8,   # must be a multiple of num_generations
@@ -38,6 +39,12 @@ def main():
         fp16=True,                       # T4 has no bf16
         report_to="none",
     )
+    # GRPOConfig args drift across trl versions — pass only what this version accepts.
+    valid = set(inspect.signature(GRPOConfig.__init__).parameters)
+    dropped = [k for k in cfg_kwargs if k not in valid]
+    if dropped:
+        print("note: GRPOConfig ignoring unsupported args:", dropped)
+    cfg = GRPOConfig(**{k: v for k, v in cfg_kwargs.items() if k in valid})
 
     trainer = GRPOTrainer(model=MODEL, reward_funcs=reward_func, args=cfg,
                           train_dataset=dataset, peft_config=peft_config)
