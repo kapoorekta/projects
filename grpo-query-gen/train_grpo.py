@@ -11,7 +11,7 @@ from datasets import load_dataset
 from peft import LoraConfig
 from trl import GRPOConfig, GRPOTrainer
 
-from src.data import ID_CACHE, VEC_CACHE
+from src.data import ID_CACHE, TYPE_CACHE, VEC_CACHE
 from src.reward import Retriever, make_reward_fn
 
 MODEL = os.environ.get("GRPO_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")  # 1.5B for quality if it fits
@@ -19,7 +19,8 @@ MODEL = os.environ.get("GRPO_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")  # 1.5B for q
 
 def main():
     dataset = load_dataset("json", data_files="data/dataset.jsonl", split="train")
-    reward_func = make_reward_fn(Retriever(VEC_CACHE, ID_CACHE), k=20)
+    retriever = Retriever(VEC_CACHE, ID_CACHE, TYPE_CACHE)
+    reward_func = make_reward_fn(retriever, k=20, match="type")  # denser than exact-id
 
     peft_config = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05,
                              task_type="CAUSAL_LM", target_modules="all-linear")

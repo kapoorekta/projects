@@ -18,6 +18,7 @@ ART = os.path.join(HERE, "data/raw/articles.csv")
 TXN = os.path.join(HERE, "data/raw/transactions_train.csv")
 VEC_CACHE = os.path.join(HERE, "data/catalog_vecs_minilm.npy")
 ID_CACHE = os.path.join(HERE, "data/catalog_ids.npy")
+TYPE_CACHE = os.path.join(HERE, "data/catalog_types.npy")  # product_type per item (type-level reward)
 
 SYSTEM = (
     "You are a fashion search assistant. Given a customer's recent purchases, "
@@ -36,10 +37,12 @@ def _catalog_frame() -> pd.DataFrame:
 
 
 def embed_catalog(model_name: str = "sentence-transformers/all-MiniLM-L6-v2") -> None:
-    """One-time: embed the whole catalog and cache vectors + ids."""
+    """One-time: cache catalog vectors + ids + per-item product types (aligned)."""
+    df = _catalog_frame()
+    if not os.path.exists(TYPE_CACHE):           # types align with ID_CACHE order
+        np.save(TYPE_CACHE, np.array(df.product_type_name.tolist(), dtype=object))
     if os.path.exists(VEC_CACHE):
         return
-    df = _catalog_frame()
     model = SentenceTransformer(model_name)
     vecs = model.encode(df.text.tolist(), batch_size=256, normalize_embeddings=True,
                         convert_to_numpy=True, show_progress_bar=True).astype(np.float32)
@@ -47,26 +50,35 @@ def embed_catalog(model_name: str = "sentence-transformers/all-MiniLM-L6-v2") ->
     np.save(ID_CACHE, np.array(df.article_id.tolist(), dtype=object))
 
 
-def build_dataset(n_customers=2000, hist_n=6, basket_n=4, nrows=5_000_000) -> Dataset:
+def build_dataset(n_customers=2000, skip=0, hist_n=6, basket_n=4, nrows=5_000_000) -> Dataset:
+    """`skip` qualifying customers before collecting — use it to carve a disjoint
+    train/eval split (train: skip=0; eval: skip=<n_train>)."""
     cat = _catalog_frame().set_index("article_id")
-    name = cat.prod_name.to_dict()
+    name, ptype = cat.prod_name.to_dict(), cat.product_type_name.to_dict()
 
     txn = pd.read_csv(TXN, usecols=["t_dat", "customer_id", "article_id"],
                       dtype={"article_id": str, "customer_id": str}, nrows=nrows)
     txn = txn.sort_values("t_dat")
 
-    rows = []
+    rows, seen = [], 0
     for _, g in txn.groupby("customer_id", sort=False):
         arts = list(dict.fromkeys(g.article_id.tolist()))
         if len(arts) < hist_n + basket_n:
             continue
+        seen += 1
+        if seen <= skip:
+            continue
         history, basket = arts[-(hist_n + basket_n):-basket_n], arts[-basket_n:]
+        basket = [b for b in basket if b in cat.index]
+        if not basket:
+            continue
         hist_str = ", ".join(name.get(a, a) for a in history)
         rows.append({
             "prompt": [{"role": "system", "content": SYSTEM},
                        {"role": "user", "content": f"Recent purchases: {hist_str}"}],
-            "basket": [b for b in basket if b in cat.index],
+            "basket": basket,
+            "basket_types": [ptype[b] for b in basket],
         })
         if len(rows) >= n_customers:
             break
-    return Dataset.from_list([r for r in rows if r["basket"]])
+    return Dataset.from_list(rows)
