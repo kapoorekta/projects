@@ -41,9 +41,20 @@ def parse_queries(text: str, cap: int = 5) -> list[str]:
     return (lines or [text.strip()])[:cap]
 
 
-def make_reward_fn(retriever: Retriever, k=20, match="exact", query_budget=3,
-                   cand_budget=60, lam_q=0.10, lam_c=0.005):
-    """Build the GRPO reward. `match`: 'exact' (article ids) or 'type' (product types)."""
+def _mrr(targets, ranks: dict) -> float:
+    return float(np.mean([1.0 / ranks[t] if t in ranks else 0.0 for t in targets])) if targets else 0.0
+
+
+def make_reward_fn(retriever: Retriever, k=20, match="graded", alpha=0.5,
+                   query_budget=3, cand_budget=60, lam_q=0.10, lam_c=0.005):
+    """Build the GRPO reward.
+
+    match:
+      "exact"  — MRR over the actual next article_ids (hard, sparse).
+      "type"   — MRR over the next basket's product types (easy, dense -> ceilings out).
+      "graded" — alpha*exact + (1-alpha)*type: dense (type keeps signal) AND has
+                 headroom (the exact term rewards getting the actual item right).
+    """
     def reward_func(completions, basket, basket_types=None, **kwargs) -> list[float]:
         basket_types = basket_types or [None] * len(completions)
         rewards = []
@@ -57,20 +68,26 @@ def make_reward_fn(retriever: Retriever, k=20, match="exact", query_budget=3,
                     if iid not in best_rank or rank < best_rank[iid]:
                         best_rank[iid] = rank
 
-            if match == "type":
+            exact = _mrr(ids, best_rank)
+            type_score = 0.0
+            if match in ("type", "graded"):
                 by_type: dict[str, int] = {}        # product_type -> best rank of any item
                 for iid, rank in best_rank.items():
                     t = retriever.id2type.get(iid)
                     if t is not None and (t not in by_type or rank < by_type[t]):
                         by_type[t] = rank
-                targets, ranks = types, by_type
-            else:
-                targets, ranks = ids, best_rank
+                type_score = _mrr(types, by_type)
 
-            mrr = float(np.mean([1.0 / ranks[t] if t in ranks else 0.0 for t in targets]))
+            if match == "exact":
+                score = exact
+            elif match == "type":
+                score = type_score
+            else:  # graded
+                score = alpha * exact + (1 - alpha) * type_score
+
             penalty = (lam_q * max(0, len(queries) - query_budget)
                        + lam_c * max(0, len(best_rank) - cand_budget))
-            rewards.append(mrr - penalty)
+            rewards.append(score - penalty)
         return rewards
 
     return reward_func

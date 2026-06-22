@@ -20,7 +20,7 @@ MODEL = os.environ.get("GRPO_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")  # 1.5B for q
 def main():
     dataset = load_dataset("json", data_files="data/dataset.jsonl", split="train")
     retriever = Retriever(VEC_CACHE, ID_CACHE, TYPE_CACHE)
-    reward_func = make_reward_fn(retriever, k=20, match="type")  # denser than exact-id
+    reward_func = make_reward_fn(retriever, k=20, match="graded")  # dense + headroom
 
     peft_config = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05,
                              task_type="CAUSAL_LM", target_modules="all-linear")
@@ -32,10 +32,11 @@ def main():
         gradient_accumulation_steps=4,
         max_prompt_length=256,
         max_completion_length=64,        # queries are short
-        learning_rate=1e-6,
+        learning_rate=5e-6,
         beta=0.04,                       # KL penalty to the frozen reference
         temperature=1.0,
         num_train_epochs=1,
+        max_steps=150,                   # short run: see if reward climbs fast (overrides epochs)
         logging_steps=5,
         fp16=True,                       # T4 has no bf16
         report_to="none",
