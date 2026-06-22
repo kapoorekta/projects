@@ -1,6 +1,8 @@
 """Evaluate base vs GRPO: recall@k of the customer's next basket from generated
 queries, on the held-out eval split. The before/after number for the run.
 """
+import os
+
 import numpy as np
 import torch
 from datasets import load_dataset
@@ -10,7 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from src.data import ID_CACHE, TYPE_CACHE, VEC_CACHE
 from src.reward import Retriever, parse_queries
 
-MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
+MODEL = os.environ.get("GRPO_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")  # must match train_grpo
 ADAPTER = "artifacts/grpo-query-gen"
 K = 20
 

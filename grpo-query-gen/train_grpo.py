@@ -14,7 +14,7 @@ from trl import GRPOConfig, GRPOTrainer
 from src.data import ID_CACHE, TYPE_CACHE, VEC_CACHE
 from src.reward import Retriever, make_reward_fn
 
-MODEL = os.environ.get("GRPO_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")  # 1.5B for quality if it fits
+MODEL = os.environ.get("GRPO_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")  # more capacity than 0.5B
 
 
 def main():
@@ -27,8 +27,8 @@ def main():
 
     cfg_kwargs = dict(
         output_dir="artifacts/grpo-query-gen",
-        num_generations=8,               # group size G (relative-advantage baseline)
-        per_device_train_batch_size=8,   # must be a multiple of num_generations
+        num_generations=4,               # group size G (4 to fit 1.5B on a T4)
+        per_device_train_batch_size=4,   # must be a multiple of num_generations
         gradient_accumulation_steps=4,
         max_prompt_length=256,
         max_completion_length=64,        # queries are short
