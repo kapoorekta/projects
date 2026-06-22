@@ -45,15 +45,19 @@ def _mrr(targets, ranks: dict) -> float:
     return float(np.mean([1.0 / ranks[t] if t in ranks else 0.0 for t in targets])) if targets else 0.0
 
 
-def make_reward_fn(retriever: Retriever, k=20, match="graded", alpha=0.5,
+def make_reward_fn(retriever: Retriever, k=20, k_exact=200, match="graded", alpha=0.7,
                    query_budget=3, cand_budget=60, lam_q=0.10, lam_c=0.005):
     """Build the GRPO reward.
 
     match:
-      "exact"  — MRR over the actual next article_ids (hard, sparse).
-      "type"   — MRR over the next basket's product types (easy, dense -> ceilings out).
-      "graded" — alpha*exact + (1-alpha)*type: dense (type keeps signal) AND has
-                 headroom (the exact term rewards getting the actual item right).
+      "exact"  — MRR over the actual next article_ids.
+      "type"   — MRR over the next basket's product types (dense, but ceilings out).
+      "graded" — alpha*exact + (1-alpha)*type.
+
+    The exact term is graded by rank over a DEEP pool (top-k_exact), not just the
+    top-k candidate set — so it's non-zero and *varies across attempts* even when the
+    real item isn't in the top-k. That gives GRPO a gradient to push the actual item
+    UP the ranking (toward recall@k), instead of an always-0 term with no signal.
     """
     def reward_func(completions, basket, basket_types=None, **kwargs) -> list[float]:
         basket_types = basket_types or [None] * len(completions)
@@ -62,17 +66,19 @@ def make_reward_fn(retriever: Retriever, k=20, match="graded", alpha=0.5,
             text = comp if isinstance(comp, str) else comp[-1]["content"]
             queries = parse_queries(text, cap=query_budget + 2)
 
-            best_rank: dict[str, int] = {}          # article_id -> best rank across queries
+            deep_rank: dict[str, int] = {}          # article_id -> best rank over top-k_exact
             for q in queries:
-                for rank, iid in enumerate(retriever.retrieve(q, k), start=1):
-                    if iid not in best_rank or rank < best_rank[iid]:
-                        best_rank[iid] = rank
+                for rank, iid in enumerate(retriever.retrieve(q, k_exact), start=1):
+                    if iid not in deep_rank or rank < deep_rank[iid]:
+                        deep_rank[iid] = rank
 
-            exact = _mrr(ids, best_rank)
+            exact = _mrr(ids, deep_rank)            # graded by deep rank -> varies, learnable
             type_score = 0.0
             if match in ("type", "graded"):
-                by_type: dict[str, int] = {}        # product_type -> best rank of any item
-                for iid, rank in best_rank.items():
+                by_type: dict[str, int] = {}        # type -> best rank, top-k candidates only
+                for iid, rank in deep_rank.items():
+                    if rank > k:
+                        continue
                     t = retriever.id2type.get(iid)
                     if t is not None and (t not in by_type or rank < by_type[t]):
                         by_type[t] = rank
@@ -85,8 +91,9 @@ def make_reward_fn(retriever: Retriever, k=20, match="graded", alpha=0.5,
             else:  # graded
                 score = alpha * exact + (1 - alpha) * type_score
 
+            n_cand = sum(1 for r in deep_rank.values() if r <= k)
             penalty = (lam_q * max(0, len(queries) - query_budget)
-                       + lam_c * max(0, len(best_rank) - cand_budget))
+                       + lam_c * max(0, n_cand - cand_budget))
             rewards.append(score - penalty)
         return rewards
 
